@@ -37,7 +37,7 @@ bc:
 decoder:
   use_obs: False
   load_actor: False
-  actor_path: "/data/tucana/ms24ha/compr_recon/saved_models/actors/lapo_weighted-2240f441-d055-4e7d-905c-1765e449def5.pth"
+  actor_path: "VLM-guided-LAPO/saved_models/actors/lapo_weighted-2240f441-d055-4e7d-905c-1765e449def5.pth"
   total_updates: 2500
   batch_size: 512
   learning_rate: 0.0003
