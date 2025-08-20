@@ -1,0 +1,52 @@
+group: "lapo-unweighted"
+seed: 0
+device: "cuda:0"
+
+lapo:
+  num_epochs: 10
+  batch_size: 512
+  future_obs_offset: 10
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  warmup_epochs: 3
+  latent_action_dim: 16  # originally: 8192
+  encoder_scale: 6 # originally: 6
+  encoder_num_res_blocks: 2 # originally: 2
+  encoder_deep: False
+  weighted: True
+  frame_stack: 3
+  data_path: "/data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-64px-5k.hdf5"
+
+bc:
+  num_epochs: 10
+  batch_size: 512
+  learning_rate: 0.0001
+  weight_decay: 0.0 
+  warmup_epochs: 0
+  encoder_scale: 16 # originally: 32, or 8
+  encoder_num_res_blocks: 2 # originally: 2
+  encoder_deep: False
+  dropout: 0.0
+  frame_stack: 3
+  data_path: "/data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-64px-5k.hdf5"
+  dcs_backgrounds_path: "DAVIS/JPEGImages/480p"
+  dcs_backgrounds_split: "train"
+  eval_episodes: 5
+  eval_seed: 0
+
+decoder:
+  use_obs: False
+  load_actor: False
+  actor_path: "/data/tucana/ms24ha/compr_recon/saved_models/actors/lapo_weighted-2240f441-d055-4e7d-905c-1765e449def5.pth"
+  total_updates: 2500
+  batch_size: 512
+  learning_rate: 0.0003
+  weight_decay: 0.0
+  warmup_epochs: 0
+  hidden_dim: 256 # originally: 256
+  data_path: "/data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x128-64px.hdf5"
+  dcs_backgrounds_path: "DAVIS/JPEGImages/480p"
+  dcs_backgrounds_split: "train"
+  eval_episodes: 25
+  eval_seed: 0
+

@@ -1,0 +1,9 @@
+__pycache__/
+wandb/
+DAVIS/
+saved_models/
+original_lapo.py
+test_env.ipynb
+tests.ipynb
+train_lapo_unweighted.py
+train_lapo_weighted.py

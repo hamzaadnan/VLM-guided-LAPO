@@ -1,0 +1,33 @@
+program: train_decoder.py
+method: grid
+project: weighted_lapo
+name: hopper-128-scale-1-weighted-sweep
+
+parameters:
+  config_path:
+    value: /data/tucana/ms24ha/compr_recon/saved_models/configs/hopper128-scale1-7fe4c09f-799c-4609-999a-c0eeae90b2b9.yaml
+  decoder.load_actor:
+    value: True
+  decoder.actor_path:
+    value: /data/tucana/ms24ha/compr_recon/saved_models/actors/hopper128-scale1-7fe4c09f-799c-4609-999a-c0eeae90b2b9.pth
+  decoder.data_path:
+    values:
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x2-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x4-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x8-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x16-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x32-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x64-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x128-64px.hdf5
+  decoder.use_obs:
+    values:
+      - True
+      - False
+  seed:
+    values:
+      - 0
+      - 1
+      - 2
+  device:
+    value: cuda:0
+  
