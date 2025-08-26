@@ -15,7 +15,7 @@ lapo:
   encoder_deep: False
   weighted: True
   frame_stack: 3
-  data_path: "/data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-64px-5k.hdf5"
+  data_path: "/data/tucana/ms24ha/64px_data_chunked/humanoid-walk-scale-easy-video-hard-64px-5k.hdf5"
 
 bc:
   num_epochs: 10
@@ -28,7 +28,7 @@ bc:
   encoder_deep: False
   dropout: 0.0
   frame_stack: 3
-  data_path: "/data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-64px-5k.hdf5"
+  data_path: "/data/tucana/ms24ha/64px_data_chunked/humanoid-walk-scale-easy-video-hard-64px-5k.hdf5"
   dcs_backgrounds_path: "DAVIS/JPEGImages/480p"
   dcs_backgrounds_split: "train"
   eval_episodes: 5
@@ -44,7 +44,7 @@ decoder:
   weight_decay: 0.0
   warmup_epochs: 0
   hidden_dim: 256 # originally: 256
-  data_path: "/data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x128-64px.hdf5"
+  data_path: "/data/tucana/ms24ha/64px_data_chunked/humanoid-walk-scale-easy-video-hard-labeled-1000x128-64px.hdf5"
   dcs_backgrounds_path: "DAVIS/JPEGImages/480p"
   dcs_backgrounds_split: "train"
   eval_episodes: 25

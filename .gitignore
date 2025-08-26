@@ -1,7 +1,6 @@
 __pycache__/
 wandb/
 DAVIS/
-saved_models/
 original_lapo.py
 test_env.ipynb
 tests.ipynb

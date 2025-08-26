@@ -1,33 +1,29 @@
 program: train_decoder.py
 method: grid
 project: weighted_lapo
-name: hopper-128-scale-1-weighted-sweep
+name: cheetah-256-w
 
 parameters:
   config_path:
-    value: saved_models/configs/hopper128-scale1-7fe4c09f-799c-4609-999a-c0eeae90b2b9.yaml
+    value: saved_models/configs/cheetah-256-w.yaml
   decoder.load_actor:
     value: True
   decoder.actor_path:
-    value: saved_models/actors/hopper128-scale1-7fe4c09f-799c-4609-999a-c0eeae90b2b9.pth
+    value: saved_models/actors/cheetah-256-w.pth
   decoder.data_path:
     values:
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x2-64px.hdf5
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x4-64px.hdf5
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x8-64px.hdf5
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x16-64px.hdf5
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x32-64px.hdf5
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x64-64px.hdf5
-      - /data/tucana/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x128-64px.hdf5
-  decoder.use_obs:
-    values:
-      - True
-      - False
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x2-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x4-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x8-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x16-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x32-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x64-64px.hdf5
+      - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x128-64px.hdf5
   seed:
     values:
       - 0
       - 1
       - 2
   device:
-    value: cuda:0
+    value: cuda:3
   
