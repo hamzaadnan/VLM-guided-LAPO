@@ -90,9 +90,7 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
     )
 
     linear_probe = nn.Sequential(
-        nn.Linear(config.latent_action_dim, 8),
-        nn.ReLU6(),
-        nn.Linear(8, dataset.act_dim)
+        nn.Linear(config.latent_action_dim, dataset.act_dim),
     ).to(DEVICE)
     probe_optim = torch.optim.Adam(linear_probe.parameters(), lr=config.learning_rate)
 
