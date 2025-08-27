@@ -329,17 +329,17 @@ class LAPO(nn.Module):
 class LAOM(nn.Module):
     def __init__(
         self,
-        shape,
-        latent_action_dim,
-        encoder_scale=1,
-        encoder_channels=(16, 32, 64, 128, 256),
-        encoder_num_res_blocks=1,
-        encoder_dropout=0.0,
-        encoder_norm_out=True,
-        act_head_dim=512,
-        act_head_dropout=0.0,
-        obs_head_dim=512,
-        obs_head_dropout=0.0,
+        shape: tuple[int, int, int],
+        latent_act_dim: int,
+        encoder_scale: int = 1,
+        encoder_channels: tuple[int, ...]=(16, 32, 64, 128, 256),
+        encoder_num_res_blocks: int = 1,
+        encoder_dropout: float = 0.0,
+        encoder_norm_out: bool = True,
+        act_head_dim: int = 16,
+        act_head_dropout: float = 0.0,
+        obs_head_dim: int = 16,
+        obs_head_dropout: float = 0.0,
     ):
         super().__init__()
         self.initial_shape = shape
@@ -361,19 +361,19 @@ class LAOM(nn.Module):
             nn.LayerNorm(math.prod(shape), elementwise_affine=False) if encoder_norm_out else nn.Identity()
         )
         self.act_head = LatentActHead(
-            act_dim=latent_action_dim,
+            act_dim=latent_act_dim,
             emb_dim=math.prod(shape),
             hidden_dim=act_head_dim,
             dropout=act_head_dropout
         )
         self.obs_head = LatentObsHead(
-            act_dim=latent_action_dim,
+            act_dim=latent_act_dim,
             proj_dim=math.prod(shape),
             hidden_dim=obs_head_dim,
             dropout=obs_head_dropout
         )
         self.final_encoder_shape = shape
-        self.latent_action_dim = latent_action_dim
+        self.latent_act_dim = latent_act_dim
         self.apply(weight_init)
 
     def forward(self, obs, next_obs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

@@ -18,6 +18,27 @@ class LAPOConfig:
     data_path: str = "/data/lynx/ms24ha/64px_data/hopper-hop-scale-easy-video-hard-64px-5k.hdf5"
 
 @dataclass
+class LAOMConfig:
+    num_epochs: int = 10
+    batch_size: int = 512
+    future_obs_offset: int = 10
+    learning_rate: float = 1e-4
+    weight_decay: float = 0.0
+    warmup_epochs: int = 3
+    latent_action_dim: int = 16
+    act_head_dropout: float = 0.0
+    obs_head_dropout: float = 0.0
+    encoder_scale: int = 0
+    encoder_num_res_blocks: int = 2
+    encoder_dropout: float = 0.0
+    encoder_norm_out: bool = False
+    encoder_deep: bool = False
+    target_tau: float = 1e-3
+    target_update_every: int = 1
+    frame_stack: int = 3
+    data_path: str = "/data/lynx/ms24ha/64px_data/hopper-hop-scale-easy-video-hard-64px-5k.hdf5"
+
+@dataclass
 class BCConfig:
     num_epochs: int = 10
     batch_size: int = 512
@@ -65,3 +86,4 @@ class Config:
 
     def __post_init__(self):
         self.name = f"{self.name}-{str(uuid.uuid4())}"
+

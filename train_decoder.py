@@ -192,8 +192,6 @@ def main(config: Config):
 
     set_seed(config.seed)
 
-    print(config.decoder.data_path)
-
     actor = Actor(
         shape=(3 * config.bc.frame_stack, 64, 64),
         num_actions=config.lapo.latent_action_dim,
