@@ -22,13 +22,6 @@ parameters:
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x32-64px.hdf5
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x64-64px.hdf5
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x128-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x2-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x4-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x8-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x16-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x32-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x64-64px.hdf5
-      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x128-64px.hdf5
   seed:
     values:
       - 0
