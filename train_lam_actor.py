@@ -1,4 +1,5 @@
 import math
+import uuid
 import time
 import yaml
 import torch
@@ -14,12 +15,12 @@ from PIL import Image
 from tqdm import trange
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
-from dataclasses import asdict
+from dataclasses import dataclass, asdict, field
 from torchvision.utils import make_grid
 
 from src.nn import LAPO, ActionDecoder, ObsActionDecoder, Actor
 from src.scheduler import linear_annealing_with_warmup
-from src.data_classes import LAPOConfig, BCConfig, DecoderConfig, Config
+from src.data_classes import LAPOConfig, BCConfig, DecoderConfig
 from src.utils import (
     DCSChunkedDataset,
     DCSChunkedHeatmapDataset,
@@ -36,6 +37,18 @@ from src.utils import (
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+
+
+@dataclass
+class Config:
+    project: str = "weighted_lapo"
+    group: str = "lapo_weighted"
+    name: str = "lapo_weighted"
+    seed: int = 0
+    device: str = "cuda:0"
+    lapo: LAPOConfig = field(default_factory=LAPOConfig)
+    bc: BCConfig = field(default_factory=BCConfig)
+    decoder: DecoderConfig = field(default_factory=DecoderConfig)
 
 
 def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
@@ -89,11 +102,7 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
         total_steps=total_updates
     )
 
-    linear_probe = nn.Sequential(
-        nn.Linear(config.latent_action_dim, 8),
-        nn.ReLU6(),
-        nn.Linear(8, dataset.act_dim)
-    ).to(DEVICE)
+    linear_probe = nn.Linear(config.latent_action_dim, dataset.act_dim).to(DEVICE)
     probe_optim = torch.optim.Adam(linear_probe.parameters(), lr=config.learning_rate)
 
 
