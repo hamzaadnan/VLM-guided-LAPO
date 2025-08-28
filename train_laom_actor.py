@@ -11,20 +11,21 @@ import torch.nn as nn
 import gymnasium as gym
 import torch.nn.functional as F
 
+from copy import deepcopy
 from PIL import Image
 from tqdm import trange
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, field, dataclass
 from torchvision.utils import make_grid
 
-from src.nn import LAPO, ActionDecoder, ObsActionDecoder, Actor
+from src.nn import LAOM, ActionDecoder, ObsActionDecoder, Actor
 from src.scheduler import linear_annealing_with_warmup
-from src.data_classes import LAPOConfig, BCConfig, DecoderConfig
+from src.data_classes import LAOMConfig, BCConfig, DecoderConfig
 from src.utils import (
     DCSChunkedDataset,
-    DCSChunkedHeatmapDataset,
-    weighted_mse_loss,
+    DCSChunkedLAOMDataset,
+    soft_update,
     worker_init_fn,
     create_env_from_df,
     get_grad_norm,
@@ -34,40 +35,27 @@ from src.utils import (
     set_seed
 )
 
+@dataclass
+class Config:
+    project: str = "weighted_lapo"
+    group: str = "lapo_weighted"
+    name: str = "lapo_weighted"
+    seed: int = 0
+    device: str = "cuda:0"
+    lapo: LAOMConfig = field(default_factory=LAOMConfig)
+    bc: BCConfig = field(default_factory=BCConfig)
+    decoder: DecoderConfig = field(default_factory=DecoderConfig)
+
+    # def __post_init__(self):
+    #     self.name = f"{self.name}-{str(uuid.uuid4())}"
+
 torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
 
-@dataclass
-class Config:
-    project: str = "weighted_lapo"
-    group: str = "lapo_weighted"
-    name: str = "lapo_weighted"
-    seed: int = 0
-    device: str = "cuda:0"
-    lapo: LAPOConfig = field(default_factory=LAPOConfig)
-    bc: BCConfig = field(default_factory=BCConfig)
-    decoder: DecoderConfig = field(default_factory=DecoderConfig)
-
-    def __post_init__(self):
-        self.name = f"{self.name}-{str(uuid.uuid4())}"
-
-
-@dataclass
-class Config:
-    project: str = "weighted_lapo"
-    group: str = "lapo_weighted"
-    name: str = "lapo_weighted"
-    seed: int = 0
-    device: str = "cuda:0"
-    lapo: LAPOConfig = field(default_factory=LAPOConfig)
-    bc: BCConfig = field(default_factory=BCConfig)
-    decoder: DecoderConfig = field(default_factory=DecoderConfig)
-
-
-def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
-    dataset = DCSChunkedHeatmapDataset(
+def train_lapo(config: LAOMConfig, DEVICE: str) -> LAOM:
+    dataset = DCSChunkedLAOMDataset(
         hdf5_path=config.data_path,
         frame_stack=config.frame_stack,
         max_offset=config.frame_stack,
@@ -83,16 +71,21 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
         drop_last=True,
     )
 
-    lapo = LAPO(
-        shape=(3 * config.frame_stack, dataset.img_hw, dataset.img_hw),
+    lapo = LAOM(
+        shape=(3 * config.frame_stack, dataset.img_hw, dataset.img_hw), # type: ignore
         latent_act_dim=config.latent_action_dim,
         encoder_scale=config.encoder_scale,
         encoder_channels=(16, 32, 64, 128, 256) if config.encoder_deep else (16, 32, 32),
-        encoder_num_res_blocks=config.encoder_num_res_blocks
+        encoder_num_res_blocks=config.encoder_num_res_blocks,
+        encoder_dropout=config.encoder_dropout,
+        encoder_norm_out=config.encoder_norm_out,
+        act_head_dim=config.latent_action_dim,
+        act_head_dropout=config.act_head_dropout,
+        obs_head_dim=config.latent_action_dim,
+        obs_head_dropout=config.obs_head_dropout
     ).to(DEVICE)
-
-    if config.weighted:
-        print("Using weighted loss to train LAM.")
+    
+    target_lapo = deepcopy(lapo)
 
     torchinfo.summary(
         lapo,
@@ -107,7 +100,34 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
         lr=config.learning_rate,
         fused=True
     )
+
+    state_probe = nn.Linear(
+        math.prod(lapo.final_encoder_shape),
+        dataset.state_dim
+    ).to(DEVICE)
+    state_probe_optim = torch.optim.Adam(
+        state_probe.parameters(),
+        lr=config.learning_rate
+    )
+
+    act_linear_probe = nn.Linear(
+        config.latent_action_dim, 
+        dataset.act_dim
+    ).to(DEVICE)
+    act_probe_optim = torch.optim.Adam(
+        act_linear_probe.parameters(),
+        lr=config.learning_rate
+    )
     
+    state_act_linear_probe = nn.Linear(
+        math.prod(lapo.final_encoder_shape),
+        dataset.act_dim
+    ).to(DEVICE)
+    state_act_probe_optim = torch.optim.Adam(
+        state_act_linear_probe.parameters(),
+        lr=config.learning_rate
+    )
+
     # Scheduler
     total_updates = len(dataloader) * config.num_epochs
     warmup_updates = len(dataloader) * config.warmup_epochs
@@ -117,83 +137,84 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
         total_steps=total_updates
     )
 
-    linear_probe = nn.Linear(config.latent_action_dim, dataset.act_dim).to(DEVICE)
-    linear_probe = nn.Sequential(
-        nn.Linear(config.latent_action_dim, dataset.act_dim),
-    ).to(DEVICE)
-    probe_optim = torch.optim.Adam(linear_probe.parameters(), lr=config.learning_rate)
-
 
     start_time = time.time()
     total_tokens = 0
     total_steps = 0
     for epoch in trange(config.num_epochs, desc="Epochs"):
         lapo.train()
-        for batch in dataloader:
+        for idx, batch in enumerate(dataloader):
             total_tokens += config.batch_size
             total_steps += 1
 
-            obs, next_obs, future_obs, heatmaps, actions, _ = [b.to(DEVICE) for b in batch]
+            obs, next_obs, future_obs, states, actions, _ = [b.to(DEVICE) for b in batch]
             obs = normalise_img(obs) # shape: [B, F * 3, H, W]
             next_obs = normalise_img(next_obs)
             future_obs = normalise_img(future_obs)
 
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                pred_next_obs, latent_action = lapo(obs, future_obs)
-                if config.weighted:
-                    loss = weighted_mse_loss(pred_next_obs, next_obs, heatmaps) # type: ignore
-                else:
-                    loss = F.mse_loss(pred_next_obs, next_obs) # type: ignore
+                latent_next_obs, latent_action, obs_hidden = lapo(obs, future_obs)
 
+                with torch.no_grad():
+                    next_obs_target = target_lapo.encoder(next_obs).flatten(1)
+
+                loss = F.mse_loss(
+                    latent_next_obs,
+                    next_obs_target.detach()
+                )
+            
             optim.zero_grad(set_to_none=True)
             loss.backward()
             optim.step()
             scheduler.step()
 
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                pred_action = linear_probe(latent_action.detach())
-                probe_loss = F.mse_loss(pred_action, actions)
+            if idx % config.target_update_every == 0:
+                soft_update(
+                    target_lapo,
+                    lapo,
+                    tau=config.target_tau
+                )
 
-            probe_optim.zero_grad(set_to_none=True)
-            probe_loss.backward()
-            probe_optim.step()
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                pred_states = state_probe(obs_hidden.detach())
+                state_probe_loss = F.mse_loss(pred_states, states)
+            
+            state_probe_optim.zero_grad(set_to_none=True)
+            state_probe_loss.backward()
+            state_probe_optim.step()
+
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                pred_action = act_linear_probe(latent_action.detach())
+                act_probe_loss = F.mse_loss(pred_action, actions)
+
+            act_probe_optim.zero_grad(set_to_none=True)
+            act_probe_loss.backward()
+            act_probe_optim.step()
+
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                state_pred_action = state_act_linear_probe(obs_hidden.detach())
+                state_act_probe_loss = F.mse_loss(state_pred_action, actions)
+            
+            state_act_probe_optim.zero_grad(set_to_none=True)
+            state_act_probe_loss.backward()
+            state_act_probe_optim.step()
 
             wandb.log(
                 {
                     "lapo/mse_loss": loss.item(),
-                    "lapo/action_probe_mse_loss": probe_loss.item(),
+                    "lapo/state_probe_mse_loss": state_probe_loss.item(),
+                    "lapo/action_probe_mse_loss": act_probe_loss.item(),
+                    "lapo/state_action_probe_mse_loss": state_act_probe_loss.item(),
                     "lapo/throughput": total_tokens / (time.time() - start_time),
                     "lapo/learning_rate": scheduler.get_last_lr()[0],
                     "lapo/grad_norm": get_grad_norm(lapo),
+                    "lapo/target_obs_norm": torch.norm(next_obs_target, p=2, dim=-1).mean().item(),
+                    "lapo/online_obs_norm": torch.norm(latent_next_obs, p=2, dim=-1).mean().item(),
+                    "lapo/latent_act_norm": torch.norm(latent_action, p=2, dim=-1).mean().item(),
                     "lapo/epoch": epoch,
                     "lapo/total_steps": total_steps
                 }
             )
-        
-        obs_example = [unnormalise_img(next_obs[0, i : i + 3]) for i in range(0, 3 * config.frame_stack, 3)] # type: ignore
-        next_obs_example = [unnormalise_img(pred_next_obs[0, i : i + 3]) for i in range(0, 3 * config.frame_stack, 3)] # type: ignore
-        reconstruction_img = make_grid(obs_example + next_obs_example, nrow=config.frame_stack, padding=1) # type: ignore
-        reconstruction_img = Image.fromarray(
-            reconstruction_img.permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
-        )
-        reconstruction_img = wandb.Image(reconstruction_img, caption="Top: True, Bottom: Predicted")
-
-        loss_diff = [
-            unnormalise_img(((pred_next_obs[0, i : i + 3] - next_obs[0, i : i + 3]) ** 2)) for i in range(0, 3 * config.frame_stack, 3) # type: ignore
-        ] 
-        loss_diff = make_grid(loss_diff, nrow=config.frame_stack, padding=1)
-        loss_diff = Image.fromarray(
-            loss_diff.permute((1, 2, 0)).cpu().numpy().astype(np.uint8)
-        )
-        loss_diff = wandb.Image(loss_diff, caption="Spatial Loss Difference")
-        wandb.log(
-            {
-                "lapo/next_obs_pred": reconstruction_img,
-                "lapo/loss_diff": loss_diff,
-                "lapo/epoch": epoch,
-                "lapo/total_steps": total_tokens
-            }
-        )
     return lapo
 
 @torch.no_grad()
@@ -228,7 +249,7 @@ def evaluate_bc(
         returns.append(total_reward)
     return np.array(returns)
 
-def train_bc(lam: LAPO, config: BCConfig, DEVICE: str) -> Actor:
+def train_bc(lam: LAOM, config: BCConfig, DEVICE: str) -> Actor:
     dataset = DCSChunkedDataset(
         hdf5_path=config.data_path,
         frame_stack=config.frame_stack,
@@ -496,12 +517,12 @@ def main(config: Config):
     set_seed(config.seed)
 
     lapo = train_lapo(config=config.lapo, DEVICE=config.device)
-    torch.save(lapo.state_dict(), f"saved_models/lams/{config.name}.pth")
+    torch.save(lapo.state_dict(), f"saved_models/lams/l-{config.name}.pth")
 
     actor = train_bc(lam=lapo, config=config.bc, DEVICE=config.device)
-    torch.save(actor.state_dict(), f"saved_models/actors/{config.name}.pth")
+    torch.save(actor.state_dict(), f"saved_models/actors/l-{config.name}.pth")
 
-    config_path = f"saved_models/configs/{config.name}.yaml"
+    config_path = f"saved_models/configs/l-{config.name}.yaml"
     with open(config_path, "w") as f:
        yaml.dump(
            asdict(config), f, default_flow_style=False, sort_keys=False # type: ignore

@@ -2,14 +2,17 @@ program: train_decoder.py
 method: grid
 project: weighted_lapo
 name: cheetah-256-w
+name: humanoid-256-w
 
 parameters:
   config_path:
     value: saved_models/configs/cheetah-256-w.yaml
+    value: saved_models/configs/humanoid-256-w.yaml
   decoder.load_actor:
     value: True
   decoder.actor_path:
     value: saved_models/actors/cheetah-256-w.pth
+    value: saved_models/actors/humanoid-256-w.pth
   decoder.data_path:
     values:
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x2-64px.hdf5
@@ -19,6 +22,13 @@ parameters:
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x32-64px.hdf5
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x64-64px.hdf5
       - /data/tucana/ms24ha/64px_data_chunked/cheetah-run-scale-easy-video-hard-labeled-1000x128-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x2-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x4-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x8-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x16-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x32-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x64-64px.hdf5
+      - /data/gemini/ms24ha/64px_data_chunked/hopper-hop-scale-easy-video-hard-labeled-1000x128-64px.hdf5
   seed:
     values:
       - 0
@@ -26,4 +36,5 @@ parameters:
       - 2
   device:
     value: cuda:3
+    value: cuda:7
   

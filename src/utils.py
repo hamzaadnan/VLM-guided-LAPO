@@ -49,6 +49,7 @@ class DCSChunkedDataset(Dataset):
             self.traj_len = f[first_traj]["obs"].shape[0] # type: ignore
             self.img_hw = f.attrs["img_hw"]
             self.act_dim = f[first_traj]["actions"].shape[-1] # type: ignore
+            self.state_dim = f[first_traj]["states"].shape[-1] # type: ignore
 
     def _lazy_init(self) -> None:
         if self.file is None:
@@ -108,6 +109,7 @@ class DCSChunkedHeatmapDataset(Dataset):
             self.traj_len = f[first_traj]["obs"].shape[0] #type: ignore
             self.img_hw = f.attrs["img_hw"] 
             self.act_dim = f[first_traj]["actions"].shape[-1] # type: ignore 
+            self.state_dim = f[first_traj]["states"].shape[-1] # type: ignore
 
         assert 1 <= max_offset < self.traj_len
 
@@ -164,6 +166,81 @@ class DCSChunkedHeatmapDataset(Dataset):
         future_obs, _ = self.__get_padded_obs(traj_idx, transition_idx + offset)
 
         return obs, next_obs, future_obs, next_hmaps, action, (offset - 1)
+    
+class DCSChunkedLAOMDataset(Dataset):
+    def __init__(self, hdf5_path: str, frame_stack: int = 3, max_offset: int = 10) -> None:
+       
+        self.hdf5_path = hdf5_path
+        self.frame_stack = frame_stack
+        self.max_offset = max_offset
+        self.file = None  
+
+        # Read Meta-Data Only
+        with h5py.File(hdf5_path, "r") as f:
+            self.traj_names = list(f.keys())
+            first_traj = self.traj_names[0]
+            self.traj_len = f[first_traj]["obs"].shape[0] #type: ignore
+            self.img_hw = f.attrs["img_hw"] 
+            self.act_dim = f[first_traj]["actions"].shape[-1] # type: ignore 
+            self.state_dim = f[first_traj]["states"].shape[-1] # type: ignore
+
+        assert 1 <= max_offset < self.traj_len
+
+    def _lazy_init(self) -> None:
+        if self.file is None:
+            self.file = h5py.File(self.hdf5_path, "r")
+
+    def __len__(self) -> int:
+        return len(self.traj_names) * (self.traj_len - self.max_offset)
+
+    def __get_padded_obs(self, traj_idx: int, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        self._lazy_init()
+
+        traj = self.traj_names[traj_idx]
+        obs_ds = self.file[traj]["obs"] # type: ignore
+        heatmap_ds = self.file[traj]["heatmaps"] # type: ignore
+
+        min_obs_idx = max(0, idx - self.frame_stack + 1)
+        max_obs_idx = idx + 1
+
+        obs = obs_ds[min_obs_idx:max_obs_idx]          # [F, H, W, C] # type: ignore
+        heatmaps = heatmap_ds[min_obs_idx:max_obs_idx] # [F, H, W] # type: ignore
+
+        # Pad at start if needed
+        if obs.shape[0] < self.frame_stack: # type: ignore
+            pad_frames = self.frame_stack - obs.shape[0] # type: ignore
+            pad_obs = np.repeat(obs[0:1], pad_frames, axis=0) # type: ignore
+            pad_heatmaps = np.repeat(heatmaps[0:1], pad_frames, axis=0) # type: ignore
+            obs = np.concatenate([pad_obs, obs], axis=0) # type: ignore
+            heatmaps = np.concatenate([pad_heatmaps, heatmaps], axis=0) # type: ignore
+
+        obs = torch.tensor(obs, dtype=torch.float32).permute(0, 3, 1, 2).reshape(-1, *obs.shape[1:3]) # type: ignore
+        heatmaps = torch.tensor(heatmaps, dtype=torch.float32)
+
+        return obs, heatmaps
+
+    def __getitem__(
+            self,
+            idx: int
+        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int] :
+        traj_idx, transition_idx = divmod(idx, self.traj_len - self.max_offset)
+
+        self._lazy_init()
+
+        traj = self.traj_names[traj_idx]
+        actions_ds = self.file[traj]["actions"] # type: ignore
+        states_ds = self.file[traj]["states"] # type: ignore
+
+        action = torch.tensor(actions_ds[transition_idx], dtype=torch.float32) # type: ignore
+        state = torch.tensor(states_ds[transition_idx], dtype=torch.float32) # type: ignore
+
+        obs, _ = self.__get_padded_obs(traj_idx, transition_idx)
+        next_obs, _ = self.__get_padded_obs(traj_idx, transition_idx + 1)
+
+        offset = random.randint(1, self.max_offset)
+        future_obs, _ = self.__get_padded_obs(traj_idx, transition_idx + offset)
+
+        return obs, next_obs, future_obs, state, action, (offset - 1)
     
 
 def worker_init_fn(worker_id: int):

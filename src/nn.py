@@ -14,7 +14,7 @@ class MLPBlock(nn.Module):
         )
         self.norm = nn.LayerNorm(dim)
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         return self.norm(x + self.mlp(x))
     
 # Projects from an embedding space to the action space
@@ -30,7 +30,7 @@ class LatentActHead(nn.Module):
         self.block1 = MLPBlock(dim=hidden_dim, expand=expand, dropout=dropout)
         self.block2 = MLPBlock(dim=hidden_dim, expand=expand, dropout=dropout)
 
-    def forward(self, obs_emb, next_obs_emb):
+    def forward(self, obs_emb, next_obs_emb) -> torch.Tensor:
         x = self.block0(
             self.proj0(
                 torch.concat([obs_emb, next_obs_emb], dim=-1)
@@ -62,7 +62,7 @@ class LatentObsHead(nn.Module):
         self.block1 = MLPBlock(dim=hidden_dim, expand=expand, dropout=dropout)
         self.block2 = MLPBlock(dim=hidden_dim, expand=expand, dropout=dropout)
 
-    def forward(self, x, action):
+    def forward(self, x, action) -> torch.Tensor:
         x = self.block0(
             self.proj0(
                 torch.concat([x, action], dim=-1)
@@ -93,7 +93,7 @@ class ResidualBlock(nn.Module):
             nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, padding=1)
         )
     
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         return x + self.block(x)
     
 class EncoderBlock(nn.Module):
@@ -111,12 +111,12 @@ class EncoderBlock(nn.Module):
         )
         self.blocks = nn.Sequential(*[ResidualBlock(self._out_channels, dropout) for _ in range(num_res_blocks)])
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         x = self.blocks(self.conv(x))
         assert x.shape[1:] == self.get_output_shape()
         return x
     
-    def get_output_shape(self):
+    def get_output_shape(self) -> tuple[int, int, int]:
         _C, H, W = self._input_shape
         if self._downscale:
             return (self._out_channels, (H + 1) // 2, (W + 1) // 2)
@@ -138,12 +138,12 @@ class DecoderBlock(nn.Module):
         )
         self.blocks = nn.Sequential(*[ResidualBlock(self._out_channels) for _ in range(num_res_blocks)])
 
-    def forward(self, x):
+    def forward(self, x) -> torch.Tensor:
         x = self.blocks(self.conv(x))
         assert x.shape[1:] == self.get_output_shape()
         return x
     
-    def get_output_shape(self):
+    def get_output_shape(self) -> tuple[int, int, int]:
         _, H, W = self._input_shape
         return (self._out_channels, H * 2, W * 2)
     
@@ -175,7 +175,7 @@ class Actor(nn.Module):
         self.num_actions = num_actions
         self.apply(weight_init)
 
-    def forward(self, obs):
+    def forward(self, obs) -> tuple[torch.Tensor, torch.Tensor]:
         out = self.encoder(obs).flatten(2).mean(-1)
         return self.actor_mean(out), out
     
@@ -192,7 +192,7 @@ class ActionDecoder(nn.Module):
             nn.Linear(hidden_dim, true_act_dim)
         )
         
-    def forward(self, latent_act):
+    def forward(self, latent_act) -> torch.Tensor:
         return self.model(latent_act)
 
 class ObsActionDecoder(nn.Module):
@@ -206,7 +206,7 @@ class ObsActionDecoder(nn.Module):
             nn.Linear(hidden_dim, true_act_dim)
         )
     
-    def forward(self, latent_act, obs_emb):
+    def forward(self, latent_act, obs_emb) -> torch.Tensor:
         return self.model(
             torch.cat([latent_act, obs_emb], dim=-1)
         )
@@ -236,7 +236,7 @@ class IDM(nn.Module):
             nn.Linear(in_features=math.prod(shape), out_features=latent_act_dim)
         )
         
-    def forward(self, obs, next_obs):
+    def forward(self, obs, next_obs) -> torch.Tensor:
         concat_obs = torch.cat([obs, next_obs], dim=1)
         latent_action = self.encoder(concat_obs)
         return latent_action
@@ -280,7 +280,7 @@ class FDM(nn.Module):
         )
         self.act_proj = nn.Linear(latent_act_dim, math.prod(self.final_encoder_shape))
 
-    def forward(self, obs, latent_action):
+    def forward(self, obs, latent_action) -> torch.Tensor:
         assert obs.ndim==4, "Expect shape [B, C, H, W]"
         obs_emb = self.encoder(obs)
         act_emb = self.act_proj(latent_action).reshape(-1 ,*self.final_encoder_shape)
@@ -316,11 +316,86 @@ class LAPO(nn.Module):
         self.latent_act_dim=latent_act_dim
         self.apply(weight_init)
 
-    def forward(self, obs, next_obs):
+    def forward(self, obs, next_obs) -> tuple[torch.Tensor, torch.Tensor]:
         latent_action = self.idm(obs, next_obs)
         next_obs_pred = self.fdm(obs, latent_action)
         return next_obs_pred, latent_action
     
     @torch.no_grad()
-    def label(self, obs, next_obs):
+    def label(self, obs, next_obs) -> torch.Tensor:
         return self.idm(obs, next_obs)
+
+
+class LAOM(nn.Module):
+    def __init__(
+        self,
+        shape: tuple[int, int, int],
+        latent_act_dim: int,
+        encoder_scale: int = 1,
+        encoder_channels: tuple[int, ...]=(16, 32, 64, 128, 256),
+        encoder_num_res_blocks: int = 1,
+        encoder_dropout: float = 0.0,
+        encoder_norm_out: bool = True,
+        act_head_dim: int = 16,
+        act_head_dropout: float = 0.0,
+        obs_head_dim: int = 16,
+        obs_head_dropout: float = 0.0,
+    ):
+        super().__init__()
+        self.initial_shape = shape
+
+        conv_stack = []
+        for out_ch in encoder_channels:
+            conv_seq = EncoderBlock(
+                input_shape = shape,
+                out_channels = encoder_scale * out_ch,
+                num_res_blocks=encoder_num_res_blocks,
+                dropout=encoder_dropout
+            )
+            shape = conv_seq.get_output_shape()
+            conv_stack.append(conv_seq)
+        
+        self.encoder = nn.Sequential(
+            *conv_stack,
+            nn.Flatten(),
+            nn.LayerNorm(math.prod(shape), elementwise_affine=False) if encoder_norm_out else nn.Identity()
+        )
+        self.act_head = LatentActHead(
+            act_dim=latent_act_dim,
+            emb_dim=math.prod(shape),
+            hidden_dim=act_head_dim,
+            dropout=act_head_dropout
+        )
+        self.obs_head = LatentObsHead(
+            act_dim=latent_act_dim,
+            proj_dim=math.prod(shape),
+            hidden_dim=obs_head_dim,
+            dropout=obs_head_dropout
+        )
+        self.final_encoder_shape = shape
+        self.latent_act_dim = latent_act_dim
+        self.apply(weight_init)
+
+    def forward(self, obs, next_obs) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        obs_emb, next_obs_emb = self.encoder(torch.concat([obs, next_obs])).split(obs.shape[0])
+
+        latent_action = self.act_head.forward(
+            obs_emb=obs_emb.flatten(1),
+            next_obs_emb=next_obs_emb.flatten(1)
+        )
+        latent_next_obs = self.obs_head.forward(
+            x=obs_emb.flatten(1),
+            action=latent_action
+        )
+        return latent_next_obs, latent_action, obs_emb.detach()
+    
+    @torch.no_grad()
+    def label(self, obs, next_obs) -> torch.Tensor:
+        obs_emb, next_obs_emb = self.encoder(
+            torch.cat([obs, next_obs])
+        ).split(obs.shape[0])
+        latent_action = self.act_head.forward(
+            obs_emb=obs_emb.flatten(1),
+            next_obs_emb=next_obs_emb.flatten(1)
+        )
+        return latent_action
