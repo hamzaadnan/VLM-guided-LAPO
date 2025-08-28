@@ -38,22 +38,6 @@ torch.backends.cudnn.benchmark = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-
-@dataclass
-class Config:
-    project: str = "weighted_lapo"
-    group: str = "lapo_weighted"
-    name: str = "lapo_weighted"
-    seed: int = 0
-    device: str = "cuda:0"
-    lapo: LAPOConfig = field(default_factory=LAPOConfig)
-    bc: BCConfig = field(default_factory=BCConfig)
-    decoder: DecoderConfig = field(default_factory=DecoderConfig)
-
-    def __post_init__(self):
-        self.name = f"{self.name}-{str(uuid.uuid4())}"
-
-
 @dataclass
 class Config:
     project: str = "weighted_lapo"
@@ -118,9 +102,6 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
     )
 
     linear_probe = nn.Linear(config.latent_action_dim, dataset.act_dim).to(DEVICE)
-    linear_probe = nn.Sequential(
-        nn.Linear(config.latent_action_dim, dataset.act_dim),
-    ).to(DEVICE)
     probe_optim = torch.optim.Adam(linear_probe.parameters(), lr=config.learning_rate)
 
 
