@@ -325,6 +325,47 @@ class LAPO(nn.Module):
     def label(self, obs, next_obs) -> torch.Tensor:
         return self.idm(obs, next_obs)
 
+class LAPOLabels(nn.Module):
+    def __init__(
+            self,
+            shape,
+            latent_act_dim,
+            true_act_dim,
+            encoder_scale=1,
+            encoder_channels=(16, 32, 64, 128, 256),
+            encoder_num_res_blocks=1
+    ):
+        super().__init__()
+        self.idm = IDM(
+            shape=shape,
+            latent_act_dim=latent_act_dim,
+            encoder_scale=encoder_scale,
+            encoder_channels=encoder_channels,
+            encoder_num_res_blocks=encoder_num_res_blocks
+        )
+        self.fdm = FDM(
+            shape=shape,
+            latent_act_dim=latent_act_dim,
+            encoder_scale=encoder_scale,
+            encoder_channels=encoder_channels,
+            encoder_num_res_blocks=encoder_num_res_blocks
+        )
+        self.latent_act_dim=latent_act_dim
+        self.true_actions_head = nn.Linear(latent_act_dim, true_act_dim)
+        self.apply(weight_init)
+
+    def forward(self, obs, next_obs, pred_true_act=False) -> tuple[torch.Tensor, ...]:
+        latent_action = self.idm(obs, next_obs)
+        next_obs_pred = self.fdm(obs, latent_action)
+        if pred_true_act:
+            return next_obs, self.true_actions_head(latent_action)
+        else:
+            return next_obs_pred, latent_action
+    
+    @torch.no_grad()
+    def label(self, obs, next_obs) -> torch.Tensor:
+        return self.idm(obs, next_obs)
+
 
 class LAOM(nn.Module):
     def __init__(
@@ -399,3 +440,5 @@ class LAOM(nn.Module):
             next_obs_emb=next_obs_emb.flatten(1)
         )
         return latent_action
+
+

@@ -6,7 +6,7 @@ import torch.nn as nn
 import numpy as np
 import gymnasium as gym
 
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Iterator, Any
 from shimmy import DmControlCompatibilityV0
 from torch.utils.data import Dataset, IterableDataset
 from .dcs import suite
@@ -166,7 +166,86 @@ class DCSChunkedHeatmapDataset(Dataset):
         future_obs, _ = self.__get_padded_obs(traj_idx, transition_idx + offset)
 
         return obs, next_obs, future_obs, next_hmaps, action, (offset - 1)
-    
+
+
+class DCSChunkedIterableDataset(IterableDataset):
+    def __init__(self, hdf5_path: str, frame_stack: int = 3, max_offset: int = 10) -> None:
+        super().__init__()
+        self.hdf5_path = h5py.File(hdf5_path, 'r')
+        self.frame_stack = frame_stack
+        self.max_offset = max_offset
+
+        self.traj_names = list(self.hdf5_path.keys())
+        if not self.traj_names:
+            raise ValueError("HDF5 file contains no trajectories.")
+
+        # --- KEY IMPROVEMENT ---
+        # Pre-scan all trajectory lengths. This is a fast metadata operation
+        # and avoids loading the entire dataset into memory.
+        self.traj_lengths = [self.hdf5_path[traj]["obs"].shape[0] for traj in self.traj_names]
+
+        # Read other metadata
+        first_traj = self.traj_names[0]
+        self.img_hw = self.hdf5_path.attrs["img_hw"]
+        self.act_dim = self.hdf5_path[first_traj]["actions"].shape[-1]
+        self.state_dim = self.hdf5_path[first_traj]["states"].shape[-1]
+
+    def _get_padded_obs(self, traj_name: str, idx: int) -> torch.Tensor:
+        """Helper to get a frame-stacked observation, padding if necessary."""
+        obs_ds = self.hdf5_path[traj_name]["obs"]
+
+        min_obs_idx = max(0, idx - self.frame_stack + 1)
+        max_obs_idx = idx + 1
+        obs_np = obs_ds[min_obs_idx:max_obs_idx]
+
+        # Pad at the start if the window is incomplete
+        if obs_np.shape[0] < self.frame_stack:
+            pad_frames = self.frame_stack - obs_np.shape[0]
+            pad_block = np.repeat(obs_np[0:1], pad_frames, axis=0)
+            obs_np = np.concatenate([pad_block, obs_np], axis=0)
+
+        # Convert to tensor, permute to [F, C, H, W], and flatten frames into channels
+        obs_tensor = torch.from_numpy(obs_np).float().permute(0, 3, 1, 2)
+        return obs_tensor.flatten(start_dim=0, end_dim=1)  # Shape: [F*C, H, W]
+
+    def __iter__(self):
+        """
+        This iterator uses random sampling, mirroring your working example.
+        It runs indefinitely, and the DataLoader handles workers and epochs.
+        """
+        while True:
+            # 1. Randomly select a trajectory
+            traj_idx = random.randrange(len(self.traj_names))
+            traj_name = self.traj_names[traj_idx]
+            current_traj_len = self.traj_lengths[traj_idx]
+
+            # 2. Check if the trajectory is long enough to sample from
+            if current_traj_len <= self.max_offset:
+                continue  # Skip short trajectories and try again
+
+            # 3. Randomly select a valid starting transition
+            transition_idx = random.randint(0, current_traj_len - self.max_offset -1)
+
+            # 4. Load only the data you need for this one sample
+            offset = random.randint(1, self.max_offset)
+            
+            obs = self._get_padded_obs(traj_name, transition_idx)
+            next_obs = self._get_padded_obs(traj_name, transition_idx + 1)
+            future_obs = self._get_padded_obs(traj_name, transition_idx + offset)
+
+            action_ds = self.hdf5_path[traj_name]["actions"]
+            action = torch.from_numpy(action_ds[transition_idx]).float()
+            
+            # Note: Removed states and heatmaps as per your previous requests.
+            # You can easily add them back here if needed.
+            
+            yield obs, next_obs, future_obs, action, (offset - 1)
+
+    def __del__(self):
+        """Ensures the file handle is closed when the object is garbage collected."""
+        self.hdf5_path.close()
+
+
 class DCSChunkedLAOMDataset(Dataset):
     def __init__(self, hdf5_path: str, frame_stack: int = 3, max_offset: int = 10) -> None:
        

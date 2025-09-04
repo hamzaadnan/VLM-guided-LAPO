@@ -18,12 +18,13 @@ from torchvision.utils import make_grid
 from dataclasses import dataclass, asdict, field
 from torchvision.utils import make_grid
 
-from src.nn import LAPO, ActionDecoder, ObsActionDecoder, Actor
+from src.nn import LAPOLabels, ActionDecoder, ObsActionDecoder, Actor
 from src.scheduler import linear_annealing_with_warmup
-from src.data_classes import LAPOConfig, BCConfig, DecoderConfig
+from src.data_classes import LAPOLabelConfig, BCConfig, DecoderConfig
 from src.utils import (
     DCSChunkedDataset,
     DCSChunkedHeatmapDataset,
+    DCSChunkedIterableDataset,
     weighted_mse_loss,
     worker_init_fn,
     create_env_from_df,
@@ -45,16 +46,21 @@ class Config:
     name: str = "lapo_weighted"
     seed: int = 0
     device: str = "cuda:0"
-    lapo: LAPOConfig = field(default_factory=LAPOConfig)
+    lapo: LAPOLabelConfig = field(default_factory=LAPOLabelConfig)
     bc: BCConfig = field(default_factory=BCConfig)
     decoder: DecoderConfig = field(default_factory=DecoderConfig)
 
 
-def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
+def train_lapo(config: LAPOLabelConfig, DEVICE: str) -> LAPOLabels:
     dataset = DCSChunkedHeatmapDataset(
         hdf5_path=config.data_path,
         frame_stack=config.frame_stack,
-        max_offset=config.future_obs_offset,
+        max_offset=config.frame_stack,
+    )
+    labelled_dataset = DCSChunkedIterableDataset(
+        hdf5_path=config.labelled_data_path,
+        frame_stack=config.frame_stack,
+        max_offset=config.future_obs_offset
     )
     dataloader = DataLoader(
         dataset=dataset,
@@ -66,10 +72,20 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
         pin_memory=True,
         drop_last=True,
     )
+    labelled_dataloader = DataLoader(
+        dataset=labelled_dataset,
+        batch_size=config.labelled_batch_size,
+        num_workers=4,
+        persistent_workers=True,
+        worker_init_fn=worker_init_fn,
+        # pin_memory=True,
+        drop_last=True,
+    )
 
-    lapo = LAPO(
+    lapo = LAPOLabels(
         shape=(3 * config.frame_stack, dataset.img_hw, dataset.img_hw),
         latent_act_dim=config.latent_action_dim,
+        true_act_dim=dataset.act_dim,
         encoder_scale=config.encoder_scale,
         encoder_channels=(16, 32, 64, 128, 256) if config.encoder_deep else (16, 32, 32),
         encoder_num_res_blocks=config.encoder_num_res_blocks
@@ -104,6 +120,8 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
     linear_probe = nn.Linear(config.latent_action_dim, dataset.act_dim).to(DEVICE)
     probe_optim = torch.optim.Adam(linear_probe.parameters(), lr=config.learning_rate)
 
+    labeled_dataloader_iter = iter(labelled_dataloader)
+
 
     start_time = time.time()
     total_tokens = 0
@@ -120,11 +138,24 @@ def train_lapo(config: LAPOConfig, DEVICE: str) -> LAPO:
             future_obs = normalise_img(future_obs)
 
             with torch.autocast("cuda", dtype=torch.bfloat16):
-                pred_next_obs, latent_action = lapo(obs, future_obs)
+                pred_next_obs, latent_action = lapo(obs, future_obs, pred_true_act=False)
                 if config.weighted:
-                    loss = weighted_mse_loss(pred_next_obs, next_obs, heatmaps) # type: ignore
+                    recon_loss = weighted_mse_loss(pred_next_obs, next_obs, heatmaps) # type: ignore
                 else:
-                    loss = F.mse_loss(pred_next_obs, next_obs) # type: ignore
+                    recon_loss = F.mse_loss(pred_next_obs, next_obs) # type: ignore
+
+            labelled_batch = next(labeled_dataloader_iter)
+            labelled_obs, labelled_next_obs, labelled_future_obs, labelled_actions, _ = [b.to(DEVICE) for b in labelled_batch]
+
+            labelled_obs = normalise_img(labelled_obs)
+            labelled_next_obs = normalise_img(labelled_next_obs)
+            labelled_future_obs = normalise_img(labelled_future_obs)
+
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                _, pred_actions = lapo(labelled_obs, labelled_future_obs, pred_true_act=True)
+                true_action_loss = F.mse_loss(pred_actions, labelled_actions)      
+      
+            loss = recon_loss + config.labelled_loss_coeff * true_action_loss            
 
             optim.zero_grad(set_to_none=True)
             loss.backward()
@@ -209,7 +240,7 @@ def evaluate_bc(
         returns.append(total_reward)
     return np.array(returns)
 
-def train_bc(lam: LAPO, config: BCConfig, DEVICE: str) -> Actor:
+def train_bc(lam: LAPOLabels, config: BCConfig, DEVICE: str) -> Actor:
     dataset = DCSChunkedDataset(
         hdf5_path=config.data_path,
         frame_stack=config.frame_stack,
@@ -477,12 +508,12 @@ def main(config: Config):
     set_seed(config.seed)
 
     lapo = train_lapo(config=config.lapo, DEVICE=config.device)
-    torch.save(lapo.state_dict(), f"saved_models/lams/{config.name}.pth")
+    torch.save(lapo.state_dict(), f"saved_models/lams/labelled-{config.name}.pth")
 
     actor = train_bc(lam=lapo, config=config.bc, DEVICE=config.device)
-    torch.save(actor.state_dict(), f"saved_models/actors/{config.name}.pth")
+    torch.save(actor.state_dict(), f"saved_models/actors/labelled-{config.name}.pth")
 
-    config_path = f"saved_models/configs/{config.name}.yaml"
+    config_path = f"saved_models/configs/labelled-{config.name}.yaml"
     with open(config_path, "w") as f:
        yaml.dump(
            asdict(config), f, default_flow_style=False, sort_keys=False # type: ignore

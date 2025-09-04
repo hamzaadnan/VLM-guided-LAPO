@@ -18,6 +18,25 @@ class LAPOConfig:
     data_path: str = "/data/lynx/ms24ha/64px_data/hopper-hop-scale-easy-video-hard-64px-5k.hdf5"
 
 @dataclass
+class LAPOLabelConfig:
+    num_epochs: int = 10
+    batch_size: int = 512
+    labelled_batch_size: int = 128
+    labelled_loss_coeff: float = 1e-3
+    future_obs_offset: int = 10
+    learning_rate: float = 1e-4
+    weight_decay: float = 0.0
+    warmup_epochs: int = 3
+    latent_action_dim: int = 16
+    encoder_scale: int = 6
+    encoder_num_res_blocks: int = 2
+    encoder_deep: bool = False
+    weighted: bool = False
+    frame_stack: int = 3
+    data_path: str = "/data/lynx/ms24ha/64px_data/hopper-hop-scale-easy-video-hard-64px-5k.hdf5"
+    labelled_data_path: str = "/data/lynx/ms24ha/64px_data/hopper-hop-scale-easy-video-hard-labeled-1000x2-64px.hdf5"
+
+@dataclass
 class LAOMConfig:
     num_epochs: int = 10
     batch_size: int = 512
